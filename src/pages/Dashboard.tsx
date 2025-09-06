@@ -3,7 +3,8 @@ import { Link, useNavigate } from "react-router-dom";
 import { PersianLayout } from "@/components/layout/PersianLayout";
 import { PersianButton } from "@/components/ui/persian-button";
 import { PersianCard, PersianCardContent, PersianCardDescription, PersianCardHeader, PersianCardTitle } from "@/components/ui/persian-card";
-import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
 import { 
   FileText, 
   Users, 
@@ -24,46 +25,81 @@ import {
 } from "lucide-react";
 
 const Dashboard = () => {
-  const [userEmail, setUserEmail] = useState("");
-  const { toast } = useToast();
+  const [stats, setStats] = useState({
+    totalArticles: 0,
+    activeUsers: 0,
+    todayViews: 0,
+    monthlyRevenue: 0
+  });
+  const [recentArticles, setRecentArticles] = useState<any[]>([]);
+  const { user, signOut, loading } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Check authentication
-    const isAuthenticated = localStorage.getItem("isAuthenticated");
-    const email = localStorage.getItem("userEmail");
-    
-    if (!isAuthenticated) {
+    if (!loading && !user) {
       navigate("/login");
       return;
     }
-    
-    setUserEmail(email || "");
-  }, [navigate]);
 
-  const handleLogout = () => {
-    localStorage.removeItem("isAuthenticated");
-    localStorage.removeItem("userEmail");
-    toast({
-      title: "خروج موفقیت‌آمیز",
-      description: "با موفقیت خارج شدید",
-    });
+    if (user) {
+      fetchDashboardData();
+    }
+  }, [user, loading, navigate]);
+
+  const fetchDashboardData = async () => {
+    try {
+      // Fetch articles count
+      const { count: articlesCount } = await supabase
+        .from('articles')
+        .select('*', { count: 'exact', head: true });
+
+      // Fetch profiles count
+      const { count: usersCount } = await supabase
+        .from('profiles')
+        .select('*', { count: 'exact', head: true });
+
+      // Fetch recent articles
+      const { data: articles } = await supabase
+        .from('articles')
+        .select(`
+          *,
+          categories(name, icon),
+          profiles(display_name)
+        `)
+        .order('created_at', { ascending: false })
+        .limit(4);
+
+      // Calculate total views from articles
+      const { data: viewsData } = await supabase
+        .from('articles')
+        .select('views');
+
+      const totalViews = viewsData?.reduce((sum, article) => sum + (article.views || 0), 0) || 0;
+
+      setStats({
+        totalArticles: articlesCount || 0,
+        activeUsers: usersCount || 0,
+        todayViews: Math.floor(totalViews * 0.1), // Simulate today's views as 10% of total
+        monthlyRevenue: Math.floor(totalViews * 0.05) // Simulate revenue
+      });
+
+      setRecentArticles(articles || []);
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+    }
+  };
+
+  const handleLogout = async () => {
+    await signOut();
     navigate("/");
   };
 
-  // Mock data for dashboard
-  const stats = [
-    { icon: FileText, label: "کل مقالات", value: "1,247", change: "+12%" },
-    { icon: Users, label: "کاربران فعال", value: "342", change: "+8%" },
-    { icon: Eye, label: "بازدید امروز", value: "15,420", change: "+25%" },
-    { icon: TrendingUp, label: "درآمد ماه", value: "₹45,200", change: "+18%" }
-  ];
-
-  const recentArticles = [
-    { id: 1, title: "راهنمای کامل SEO در سال 2024", status: "منتشر شده", date: "2 ساعت پیش", views: "1,234" },
-    { id: 2, title: "بهترین ابزارهای مدیریت محتوا", status: "پیش‌نویس", date: "5 ساعت پیش", views: "0" },
-    { id: 3, title: "تکنیک‌های بازاریابی دیجیتال", status: "منتشر شده", date: "1 روز پیش", views: "2,156" },
-    { id: 4, title: "آموزش استفاده از هوش مصنوعی", status: "در حال بررسی", date: "2 روز پیش", views: "856" }
+  // Dynamic stats from database
+  const dashboardStats = [
+    { icon: FileText, label: "کل مقالات", value: stats.totalArticles.toLocaleString(), change: "+12%" },
+    { icon: Users, label: "کاربران فعال", value: stats.activeUsers.toLocaleString(), change: "+8%" },
+    { icon: Eye, label: "بازدید امروز", value: stats.todayViews.toLocaleString(), change: "+25%" },
+    { icon: TrendingUp, label: "درآمد ماه", value: `₹${stats.monthlyRevenue.toLocaleString()}`, change: "+18%" }
   ];
 
   const quickActions = [
@@ -86,7 +122,7 @@ const Dashboard = () => {
                 </div>
                 <div>
                   <h1 className="text-2xl font-bold gradient-text">پنل مدیریت نیگار دیپ</h1>
-                  <p className="text-muted-foreground">خوش آمدید، {userEmail}</p>
+                  <p className="text-muted-foreground">خوش آمدید، {user?.email}</p>
                 </div>
               </div>
               
@@ -111,7 +147,7 @@ const Dashboard = () => {
           {/* Stats Grid */}
           <section className="mb-8">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {stats.map((stat, index) => (
+              {dashboardStats.map((stat, index) => (
                 <PersianCard key={index} variant="elegant" className="animate-scale-in" style={{ animationDelay: `${index * 0.1}s` }}>
                   <PersianCardContent className="p-6">
                     <div className="flex items-center justify-between">
@@ -172,19 +208,20 @@ const Dashboard = () => {
                           <h4 className="font-medium mb-1">{article.title}</h4>
                           <div className="flex items-center gap-4 text-sm text-muted-foreground">
                             <span className={`px-2 py-1 rounded-lg ${
-                              article.status === 'منتشر شده' ? 'bg-success/20 text-success' :
-                              article.status === 'پیش‌نویس' ? 'bg-warning/20 text-warning' :
+                              article.status === 'published' ? 'bg-success/20 text-success' :
+                              article.status === 'draft' ? 'bg-warning/20 text-warning' :
                               'bg-primary/20 text-primary'
                             }`}>
-                              {article.status}
+                              {article.status === 'published' ? 'منتشر شده' : 
+                               article.status === 'draft' ? 'پیش‌نویس' : 'در حال بررسی'}
                             </span>
                             <span className="flex items-center gap-1">
                               <Clock className="h-3 w-3" />
-                              {article.date}
+                              {new Date(article.created_at).toLocaleDateString('fa-IR')}
                             </span>
                             <span className="flex items-center gap-1">
                               <Eye className="h-3 w-3" />
-                              {article.views}
+                              {article.views?.toLocaleString() || 0}
                             </span>
                           </div>
                         </div>

@@ -1,127 +1,159 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useState, useEffect } from "react";
 import { PersianLayout } from "@/components/layout/PersianLayout";
 import { PersianButton } from "@/components/ui/persian-button";
 import { PersianCard, PersianCardContent } from "@/components/ui/persian-card";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { supabase } from "@/integrations/supabase/client";
 import { 
   Search, 
-  Calendar, 
+  Filter, 
   Eye, 
-  Home, 
-  User, 
-  Clock,
-  Heart,
-  Share2,
-  BookOpen,
-  Filter
+  Clock, 
+  Heart, 
+  MessageCircle,
+  User,
+  TrendingUp,
+  Star,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react";
 
 const Articles = () => {
   const [searchTerm, setSearchTerm] = useState("");
-
-  // Mock articles data - exactly like nigardip.site style
-  const articles = [
-    {
-      id: 1,
-      title: "راهنمای کامل بهینه‌سازی SEO برای وب‌سایت‌های فارسی",
-      excerpt: "در این مقاله جامع، تکنیک‌های پیشرفته SEO برای بهبود رتبه‌بندی وب‌سایت‌های فارسی در موتورهای جستجو بررسی می‌شود. از کلمات کلیدی تا ساختار لینک‌سازی...",
-      author: "علی محمدی",
-      publishDate: "1403/08/15",
-      readTime: "8 دقیقه",
-      views: 1250,
-      likes: 45,
-      category: "بازاریابی دیجیتال",
-      image: "/api/placeholder/400/240",
-      featured: true
-    },
-    {
-      id: 2,
-      title: "آموزش طراحی رابط کاربری مدرن با Figma",
-      excerpt: "کاوش در دنیای طراحی UI/UX و یادگیری اصول بنیادی طراحی رابط‌های کاربری که تجربه کاربری بهتری ارائه می‌دهند. از اصول رنگ‌شناسی تا تایپوگرافی...",
-      author: "مریم احمدی",
-      publishDate: "1403/08/12",
-      readTime: "12 دقیقه",
-      views: 980,
-      likes: 32,
-      category: "طراحی",
-      image: "/api/placeholder/400/240"
-    },
-    {
-      id: 3,
-      title: "برنامه‌نویسی React از صفر تا صد",
-      excerpt: "آموزش کامل کتابخانه React.js برای توسعه‌دهندگان مبتدی و پیشرفته. شامل hooks، context API، state management و بهترین شیوه‌های کدنویسی...",
-      author: "حسین کریمی",
-      publishDate: "1403/08/10",
-      readTime: "15 دقیقه",
-      views: 1580,
-      likes: 67,
-      category: "برنامه‌نویسی",
-      image: "/api/placeholder/400/240"
-    },
-    {
-      id: 4,
-      title: "هوش مصنوعی و آینده تولید محتوا",
-      excerpt: "بررسی تأثیر هوش مصنوعی بر صنعت تولید محتوا و بازاریابی دیجیتال. از ابزارهای GPT تا تولید تصاویر هوشمند و اتوماسیون فرآیندهای تولید محتوا...",
-      author: "دکتر رضا نوری",
-      publishDate: "1403/08/08",
-      readTime: "10 دقیقه",
-      views: 2100,
-      likes: 89,
-      category: "فناوری",
-      image: "/api/placeholder/400/240",
-      featured: true
-    },
-    {
-      id: 5,
-      title: "استراتژی‌های موفق در شبکه‌های اجتماعی",
-      excerpt: "راهکارهای عملی برای افزایش فالوور، بهبود engagement و تبدیل مخاطبان به مشتریان وفادار در پلتفرم‌های مختلف شبکه‌های اجتماعی...",
-      author: "سارا موسوی",
-      publishDate: "1403/08/05",
-      readTime: "6 دقیقه",
-      views: 750,
-      likes: 28,
-      category: "بازاریابی دیجیتال",
-      image: "/api/placeholder/400/240"
-    },
-    {
-      id: 6,
-      title: "آموزش Node.js و ساخت API های RESTful",
-      excerpt: "یادگیری کامل Node.js برای توسعه backend، ساخت API های حرفه‌ای، کار با دیتابیس MongoDB و پیاده‌سازی سیستم‌های احراز هویت امن...",
-      author: "امیر حسینی",
-      publishDate: "1403/08/03",
-      readTime: "18 دقیقه",
-      views: 1420,
-      likes: 56,
-      category: "برنامه‌نویسی",
-      image: "/api/placeholder/400/240"
-    }
-  ];
-
-  const categories = ["همه", "برنامه‌نویسی", "طراحی", "بازاریابی دیجیتال", "فناوری"];
   const [selectedCategory, setSelectedCategory] = useState("همه");
+  const [selectedFilter, setSelectedFilter] = useState("جدیدترین");
+  const [articles, setArticles] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const articlesPerPage = 6;
+
+  useEffect(() => {
+    fetchData();
+  }, [currentPage, selectedCategory, selectedFilter]);
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      // Fetch categories with article counts
+      const { data: categoriesData } = await supabase
+        .from('categories')
+        .select(`
+          *,
+          articles!articles_category_id_fkey(count)
+        `);
+
+      if (categoriesData) {
+        const formattedCategories = [
+          { name: "همه", icon: "🌟", count: await getTotalArticlesCount() },
+          ...categoriesData.map(cat => ({
+            name: cat.name,
+            icon: cat.icon,
+            count: cat.articles?.length || 0,
+            id: cat.id
+          }))
+        ];
+        setCategories(formattedCategories);
+      }
+
+      // Build query for articles
+      let query = supabase
+        .from('articles')
+        .select(`
+          *,
+          categories(name, icon, color),
+          profiles(display_name)
+        `, { count: 'exact' })
+        .eq('status', 'published');
+
+      // Apply category filter
+      if (selectedCategory !== "همه") {
+        const selectedCat = categoriesData?.find(cat => cat.name === selectedCategory);
+        if (selectedCat) {
+          query = query.eq('category_id', selectedCat.id);
+        }
+      }
+
+      // Apply sorting
+      switch (selectedFilter) {
+        case "محبوب‌ترین":
+          query = query.order('likes', { ascending: false });
+          break;
+        case "بیشترین بازدید":
+          query = query.order('views', { ascending: false });
+          break;
+        case "بیشترین نظر":
+          query = query.order('comments_count', { ascending: false });
+          break;
+        default:
+          query = query.order('published_at', { ascending: false });
+      }
+
+      // Apply pagination
+      const from = (currentPage - 1) * articlesPerPage;
+      const to = from + articlesPerPage - 1;
+      query = query.range(from, to);
+
+      const { data: articlesData, count } = await query;
+
+      if (articlesData) {
+        setArticles(articlesData);
+        setTotalPages(Math.ceil((count || 0) / articlesPerPage));
+      }
+    } catch (error) {
+      console.error('Error fetching data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getTotalArticlesCount = async () => {
+    const { count } = await supabase
+      .from('articles')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'published');
+    return count || 0;
+  };
 
   const filteredArticles = articles.filter(article => {
-    const matchesSearch = article.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         article.excerpt.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCategory = selectedCategory === "همه" || article.category === selectedCategory;
-    return matchesSearch && matchesCategory;
+    return article.title.includes(searchTerm) || article.excerpt?.includes(searchTerm);
   });
-
-  const featuredArticles = articles.filter(article => article.featured);
 
   return (
     <PersianLayout variant="default">
-      {/* Header */}
-      <header className="bg-gradient-primary text-white">
-        <div className="container mx-auto px-4 py-16">
+      {/* Header - Matching nigardip.site design */}
+      <header className="bg-gradient-to-br from-primary via-primary to-accent text-white relative overflow-hidden">
+        <div className="absolute inset-0 bg-[url('/api/placeholder/1920/800')] opacity-10"></div>
+        <div className="relative container mx-auto px-4 py-16">
           <div className="text-center animate-fade-in-up">
+            <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm rounded-full px-6 py-3 mb-6">
+              <Star className="h-5 w-5" />
+              <span className="font-medium">اخبار و مقالات تخصصی</span>
+            </div>
             <h1 className="text-5xl font-black mb-4">
-              مقالات و محتواهای آموزشی
+              نیگار آی‌پی - مقالات
             </h1>
-            <p className="text-xl opacity-90 max-w-2xl mx-auto mb-8">
-              مجموعه‌ای از بهترین مقالات در زمینه تکنولوژی، طراحی و بازاریابی دیجیتال
+            <p className="text-xl opacity-90 max-w-3xl mx-auto mb-8">
+              بررسی و تحلیل جامع IP، تست سرعت پیشرفته، امنیت شبکه و DNS بهینه
             </p>
+            
+            {/* Stats */}
+            <div className="flex justify-center gap-8 mb-8">
+              <div className="text-center">
+                <div className="text-2xl font-bold">98.7%</div>
+                <div className="text-sm opacity-80">رضایت</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold">56,789</div>
+                <div className="text-sm opacity-80">کاربر</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold">1,234</div>
+                <div className="text-sm opacity-80">مقاله</div>
+              </div>
+            </div>
             
             {/* Search Bar */}
             <div className="max-w-2xl mx-auto relative">
@@ -138,192 +170,201 @@ const Articles = () => {
       </header>
 
       <div className="container mx-auto px-4 py-12">
-        {/* Navigation */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-6">
-            <PersianButton variant="outline" asChild>
-              <Link to="/">
-                <Home className="ml-2 h-4 w-4" />
-                بازگشت به خانه
-              </Link>
-            </PersianButton>
-            
-            <PersianButton variant="gradient" asChild>
-              <Link to="/login">
-                <User className="ml-2 h-4 w-4" />
-                ورود به پنل
-              </Link>
-            </PersianButton>
-          </div>
-
-          {/* Category Filter */}
+        {/* Categories */}
+        <section className="mb-8">
           <div className="flex flex-wrap gap-3 mb-8">
-            <div className="flex items-center gap-2 mb-2">
-              <Filter className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium">دسته‌بندی:</span>
-            </div>
             {categories.map((category) => (
               <PersianButton
-                key={category}
-                variant={selectedCategory === category ? "default" : "ghost"}
+                key={category.name}
+                variant={selectedCategory === category.name ? "default" : "outline"}
                 size="sm"
-                onClick={() => setSelectedCategory(category)}
-                className="mb-2"
+                onClick={() => setSelectedCategory(category.name)}
+                className="h-12 px-6"
               >
-                {category}
+                <span className="ml-2">{category.icon}</span>
+                {category.name}
+                {category.count > 0 && (
+                  <Badge variant="secondary" className="mr-2 text-xs">
+                    {category.count}
+                  </Badge>
+                )}
               </PersianButton>
             ))}
           </div>
-        </div>
 
-        {/* Featured Articles */}
-        {searchTerm === "" && selectedCategory === "همه" && (
-          <section className="mb-12">
-            <h2 className="text-3xl font-bold mb-8 gradient-text">مقالات ویژه</h2>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {featuredArticles.map((article, index) => (
-                <PersianCard key={article.id} variant="elegant" className="group hover:scale-[1.02] transition-all duration-300 animate-scale-in" style={{ animationDelay: `${index * 0.2}s` }}>
-                  <div className="relative overflow-hidden rounded-t-2xl">
-                    <div className="h-48 bg-gradient-accent"></div>
-                    <div className="absolute top-4 right-4 bg-primary text-primary-foreground px-3 py-1 rounded-full text-sm font-medium">
-                      ویژه
-                    </div>
-                  </div>
-                  
-                  <PersianCardContent className="p-6">
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
-                      <span className="bg-primary/10 text-primary px-2 py-1 rounded-lg font-medium">
-                        {article.category}
-                      </span>
-                      <Calendar className="h-4 w-4" />
-                      <span>{article.publishDate}</span>
-                    </div>
-                    
-                    <h3 className="text-xl font-bold mb-3 group-hover:text-primary transition-colors">
-                      {article.title}
-                    </h3>
-                    
-                    <p className="text-muted-foreground mb-4 leading-relaxed">
-                      {article.excerpt}
-                    </p>
-                    
-                    <div className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-4 text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                          <User className="h-4 w-4" />
-                          {article.author}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Clock className="h-4 w-4" />
-                          {article.readTime}
-                        </span>
-                      </div>
-                      
-                      <div className="flex items-center gap-3">
-                        <span className="flex items-center gap-1">
-                          <Eye className="h-4 w-4" />
-                          {article.views.toLocaleString()}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Heart className="h-4 w-4" />
-                          {article.likes}
-                        </span>
-                      </div>
-                    </div>
-                  </PersianCardContent>
-                </PersianCard>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* All Articles */}
-        <section>
-          <div className="flex items-center justify-between mb-8">
-            <h2 className="text-3xl font-bold gradient-text">
-              {searchTerm ? `نتایج جستجو برای "${searchTerm}"` : "همه مقالات"}
-            </h2>
-            <span className="text-muted-foreground">
-              {filteredArticles.length} مقاله پیدا شد
-            </span>
+          {/* Filters */}
+          <div className="flex flex-wrap gap-3 mb-8">
+            {["جدیدترین", "محبوب‌ترین", "بیشترین بازدید", "بیشترین نظر"].map((filter) => (
+              <PersianButton
+                key={filter}
+                variant={selectedFilter === filter ? "default" : "outline"}
+                size="sm"
+                onClick={() => setSelectedFilter(filter)}
+                className="h-10"
+              >
+                {filter}
+              </PersianButton>
+            ))}
           </div>
+        </section>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {filteredArticles.map((article, index) => (
-              <PersianCard key={article.id} variant="default" className="group hover:scale-[1.02] transition-all duration-300 animate-fade-in-up" style={{ animationDelay: `${index * 0.1}s` }}>
-                <div className="relative overflow-hidden rounded-t-2xl">
-                  <div className="h-48 bg-gradient-subtle"></div>
-                  {article.featured && (
-                    <div className="absolute top-4 right-4 bg-accent text-accent-foreground px-3 py-1 rounded-full text-sm font-medium">
-                      ویژه
-                    </div>
-                  )}
-                </div>
-                
+        {/* Articles Grid */}
+        {loading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mb-12">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <PersianCard key={index} variant="elegant" className="animate-pulse">
+                <div className="h-48 bg-secondary rounded-t-xl"></div>
                 <PersianCardContent className="p-6">
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
-                    <span className="bg-secondary text-secondary-foreground px-2 py-1 rounded-lg font-medium">
-                      {article.category}
-                    </span>
-                    <Calendar className="h-4 w-4" />
-                    <span>{article.publishDate}</span>
-                  </div>
-                  
-                  <h3 className="text-lg font-bold mb-3 group-hover:text-primary transition-colors line-clamp-2">
-                    {article.title}
-                  </h3>
-                  
-                  <p className="text-muted-foreground mb-4 leading-relaxed line-clamp-3">
-                    {article.excerpt}
-                  </p>
-                  
-                  <div className="flex items-center justify-between text-sm">
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <User className="h-4 w-4" />
-                      <span>{article.author}</span>
-                    </div>
-                    
-                    <div className="flex items-center gap-3">
-                      <span className="flex items-center gap-1">
-                        <Clock className="h-4 w-4" />
-                        {article.readTime}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Eye className="h-4 w-4" />
-                        {article.views.toLocaleString()}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 pt-4 border-t flex items-center justify-between">
-                    <PersianButton variant="outline" size="sm">
-                      <BookOpen className="ml-2 h-4 w-4" />
-                      مطالعه
-                    </PersianButton>
-                    
-                    <div className="flex items-center gap-2">
-                      <PersianButton variant="ghost" size="sm">
-                        <Heart className="h-4 w-4" />
-                      </PersianButton>
-                      <PersianButton variant="ghost" size="sm">
-                        <Share2 className="h-4 w-4" />
-                      </PersianButton>
-                    </div>
+                  <div className="h-6 bg-secondary rounded mb-3"></div>
+                  <div className="h-4 bg-secondary rounded mb-2"></div>
+                  <div className="h-4 bg-secondary rounded w-3/4 mb-4"></div>
+                  <div className="flex justify-between">
+                    <div className="h-4 bg-secondary rounded w-1/4"></div>
+                    <div className="h-4 bg-secondary rounded w-1/4"></div>
                   </div>
                 </PersianCardContent>
               </PersianCard>
             ))}
           </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mb-12">
+            {filteredArticles.map((article, index) => (
+              <PersianCard 
+                key={article.id} 
+                variant="elegant" 
+                className="group hover:scale-[1.02] transition-all duration-300 cursor-pointer animate-fade-in-up overflow-hidden"
+                style={{ animationDelay: `${index * 0.1}s` }}
+              >
+                <div className="relative">
+                  <div className="w-full h-48 bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
+                    <span className="text-4xl">{article.categories?.icon || '📄'}</span>
+                  </div>
+                  <div className="absolute top-4 right-4">
+                    <Badge 
+                      style={{ backgroundColor: article.categories?.color || '#6366f1' }}
+                      className="text-white border-0 shadow-soft"
+                    >
+                      <span className="ml-1">{article.categories?.icon || '📄'}</span>
+                      {article.categories?.name || 'عمومی'}
+                    </Badge>
+                  </div>
+                  <div className="absolute bottom-4 left-4">
+                    <Badge variant="secondary" className="bg-white/90 text-foreground">
+                      {article.reading_time} دقیقه
+                    </Badge>
+                  </div>
+                </div>
+                
+                <PersianCardContent className="p-6">
+                  <h3 className="text-xl font-bold mb-3 leading-relaxed group-hover:text-primary transition-colors">
+                    {article.title}
+                  </h3>
+                  
+                  <p className="text-muted-foreground mb-4 leading-relaxed line-clamp-2">
+                    {article.excerpt || article.content?.substring(0, 150) + '...'}
+                  </p>
+                  
+                  <div className="flex items-center justify-between mb-4 text-sm text-muted-foreground">
+                    <div className="flex items-center gap-1">
+                      <User className="h-4 w-4" />
+                      <span>{article.profiles?.display_name || 'نویسنده'}</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Clock className="h-4 w-4" />
+                      <span>{new Date(article.published_at || article.created_at).toLocaleDateString('fa-IR')}</span>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center justify-between pt-4 border-t">
+                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                      <div className="flex items-center gap-1">
+                        <Eye className="h-4 w-4" />
+                        <span>{(article.views || 0).toLocaleString()}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Heart className="h-4 w-4" />
+                        <span>{article.likes || 0}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <MessageCircle className="h-4 w-4" />
+                        <span>{article.comments_count || 0}</span>
+                      </div>
+                    </div>
+                    
+                    <PersianButton variant="ghost" size="sm" className="text-primary hover:bg-primary/10">
+                      مطالعه
+                    </PersianButton>
+                  </div>
+                </PersianCardContent>
+              </PersianCard>
+            ))}
+          </div>
+        )}
 
-          {filteredArticles.length === 0 && (
-            <div className="text-center py-16">
-              <div className="w-24 h-24 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
-                <Search className="h-12 w-12 text-muted-foreground" />
-              </div>
-              <h3 className="text-xl font-bold mb-2">هیچ مقاله‌ای پیدا نشد</h3>
-              <p className="text-muted-foreground">لطفاً کلمات کلیدی یا فیلترهای دیگری امتحان کنید</p>
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex justify-center items-center gap-2 mb-8">
+            <PersianButton
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+              disabled={currentPage === 1}
+            >
+              <ChevronRight className="h-4 w-4" />
+              قبلی
+            </PersianButton>
+            
+            <div className="flex gap-1">
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                <PersianButton
+                  key={page}
+                  variant={currentPage === page ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setCurrentPage(page)}
+                  className="w-10 h-10"
+                >
+                  {page}
+                </PersianButton>
+              ))}
             </div>
-          )}
+            
+            <PersianButton
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+              disabled={currentPage === totalPages}
+            >
+              بعدی
+              <ChevronLeft className="h-4 w-4" />
+            </PersianButton>
+          </div>
+        )}
+
+        {/* Newsletter Section - Matching nigardip.site */}
+        <section className="bg-gradient-to-br from-primary/10 to-accent/10 rounded-3xl p-8 text-center">
+          <div className="max-w-2xl mx-auto">
+            <h2 className="text-3xl font-bold mb-4 gradient-text">📧 عضویت در خبرنامه</h2>
+            <p className="text-muted-foreground mb-6">
+              جدیدترین مقالات و آپدیت‌های امنیتی را مستقیماً دریافت کنید
+            </p>
+            
+            <div className="flex gap-4 max-w-md mx-auto mb-6">
+              <Input 
+                placeholder="آدرس ایمیل شما..."
+                className="flex-1"
+              />
+              <PersianButton variant="gradient">
+                🚀 عضویت رایگان
+              </PersianButton>
+            </div>
+            
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-muted-foreground">
+              <div>✅ بدون اسپم</div>
+              <div>🎁 محتوای اختصاصی</div>
+              <div>🔒 حریم خصوصی محفوظ</div>
+              <div>📊 ۳ از ۱۲ مقاله نمایش داده شده</div>
+            </div>
+          </div>
         </section>
       </div>
     </PersianLayout>
