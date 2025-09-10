@@ -1,371 +1,367 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { PersianLayout } from "@/components/layout/PersianLayout";
 import { PersianButton } from "@/components/ui/persian-button";
 import { PersianCard, PersianCardContent } from "@/components/ui/persian-card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/components/ui/use-toast";
 import { 
   Search, 
-  Filter, 
+  User, 
   Eye, 
-  Clock, 
   Heart, 
-  MessageCircle,
-  User,
-  TrendingUp,
-  Star,
+  Clock, 
+  Filter,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  LogIn,
+  Calendar,
+  BookOpen
 } from "lucide-react";
 
+interface Article {
+  id: string;
+  title: string;
+  excerpt: string;
+  featured_image: string;
+  created_at: string;
+  views: number;
+  likes: number;
+  reading_time: number;
+  categories: { name: string; color: string } | null;
+  profiles: { display_name: string } | null;
+  status: string;
+}
+
 const Articles = () => {
-  const [searchTerm, setSearchTerm] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("همه");
-  const [selectedFilter, setSelectedFilter] = useState("جدیدترین");
-  const [articles, setArticles] = useState<any[]>([]);
-  const [categories, setCategories] = useState<any[]>([]);
+  const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("همه دسته‌ها");
+  const [categories, setCategories] = useState<{ name: string; color: string }[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const articlesPerPage = 6;
+  const { toast } = useToast();
+
+  const articlesPerPage = 12;
 
   useEffect(() => {
-    fetchData();
-  }, [currentPage, selectedCategory, selectedFilter]);
+    fetchCategories();
+    fetchArticles();
+  }, [currentPage, selectedCategory, searchTerm]);
 
-  const fetchData = async () => {
-    setLoading(true);
+  const fetchCategories = async () => {
     try {
-      // Fetch categories with article counts
-      const { data: categoriesData } = await supabase
+      const { data, error } = await supabase
         .from('categories')
-        .select(`
-          *,
-          articles!articles_category_id_fkey(count)
-        `);
+        .select('name, color')
+        .order('name');
 
-      if (categoriesData) {
-        const formattedCategories = [
-          { name: "همه", icon: "🌟", count: await getTotalArticlesCount() },
-          ...categoriesData.map(cat => ({
-            name: cat.name,
-            icon: cat.icon,
-            count: cat.articles?.length || 0,
-            id: cat.id
-          }))
-        ];
-        setCategories(formattedCategories);
-      }
+      if (error) throw error;
+      setCategories(data || []);
+    } catch (error) {
+      console.error('Error fetching categories:', error);
+    }
+  };
 
-      // Build query for articles
+  const fetchArticles = async () => {
+    try {
+      setLoading(true);
       let query = supabase
         .from('articles')
         .select(`
           *,
-          categories(name, icon, color),
+          categories(name, color),
           profiles(display_name)
         `, { count: 'exact' })
-        .eq('status', 'published');
+        .eq('status', 'published')
+        .order('created_at', { ascending: false });
 
-      // Apply category filter
-      if (selectedCategory !== "همه") {
-        const selectedCat = categoriesData?.find(cat => cat.name === selectedCategory);
-        if (selectedCat) {
-          query = query.eq('category_id', selectedCat.id);
-        }
+      if (selectedCategory !== "همه دسته‌ها") {
+        query = query.eq('categories.name', selectedCategory);
       }
 
-      // Apply sorting
-      switch (selectedFilter) {
-        case "محبوب‌ترین":
-          query = query.order('likes', { ascending: false });
-          break;
-        case "بیشترین بازدید":
-          query = query.order('views', { ascending: false });
-          break;
-        case "بیشترین نظر":
-          query = query.order('comments_count', { ascending: false });
-          break;
-        default:
-          query = query.order('published_at', { ascending: false });
+      if (searchTerm) {
+        query = query.or(`title.ilike.%${searchTerm}%,excerpt.ilike.%${searchTerm}%`);
       }
 
-      // Apply pagination
-      const from = (currentPage - 1) * articlesPerPage;
-      const to = from + articlesPerPage - 1;
-      query = query.range(from, to);
+      const { data, error, count } = await query
+        .range((currentPage - 1) * articlesPerPage, currentPage * articlesPerPage - 1);
 
-      const { data: articlesData, count } = await query;
-
-      if (articlesData) {
-        setArticles(articlesData);
-        setTotalPages(Math.ceil((count || 0) / articlesPerPage));
-      }
+      if (error) throw error;
+      
+      setArticles(data || []);
+      setTotalPages(Math.ceil((count || 0) / articlesPerPage));
     } catch (error) {
-      console.error('Error fetching data:', error);
+      console.error('Error fetching articles:', error);
+      toast({
+        title: "خطا در بارگیری",
+        description: "نتوانستیم مقالات را بارگیری کنیم",
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }
   };
 
-  const getTotalArticlesCount = async () => {
-    const { count } = await supabase
-      .from('articles')
-      .select('*', { count: 'exact', head: true })
-      .eq('status', 'published');
-    return count || 0;
+  const handleLike = async (articleId: string) => {
+    try {
+      const article = articles.find(a => a.id === articleId);
+      if (!article) return;
+
+      const { error } = await supabase
+        .from('articles')
+        .update({ likes: (article.likes || 0) + 1 })
+        .eq('id', articleId);
+
+      if (error) throw error;
+
+      setArticles(articles.map(a => 
+        a.id === articleId ? { ...a, likes: (a.likes || 0) + 1 } : a
+      ));
+
+      toast({
+        title: "پسندیده شد!",
+        description: "مقاله به لیست پسندیده‌ها اضافه شد",
+      });
+    } catch (error) {
+      console.error('Error liking article:', error);
+    }
   };
 
-  const filteredArticles = articles.filter(article => {
-    return article.title.includes(searchTerm) || article.excerpt?.includes(searchTerm);
-  });
+  const incrementView = async (articleId: string) => {
+    try {
+      const article = articles.find(a => a.id === articleId);
+      if (!article) return;
+
+      await supabase
+        .from('articles')
+        .update({ views: (article.views || 0) + 1 })
+        .eq('id', articleId);
+    } catch (error) {
+      console.error('Error incrementing view:', error);
+    }
+  };
 
   return (
-    <PersianLayout variant="default">
-      {/* Header - Matching nigardip.site design */}
-      <header className="bg-gradient-to-br from-primary via-primary to-accent text-white relative overflow-hidden">
-        <div className="absolute inset-0 bg-[url('/api/placeholder/1920/800')] opacity-10"></div>
-        <div className="relative container mx-auto px-4 py-16">
-          <div className="text-center animate-fade-in-up">
-            <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm rounded-full px-6 py-3 mb-6">
-              <Star className="h-5 w-5" />
-              <span className="font-medium">اخبار و مقالات تخصصی</span>
-            </div>
-            <h1 className="text-5xl font-black mb-4">
-              نیگار آی‌پی - مقالات
-            </h1>
-            <p className="text-xl opacity-90 max-w-3xl mx-auto mb-8">
-              بررسی و تحلیل جامع IP، تست سرعت پیشرفته، امنیت شبکه و DNS بهینه
-            </p>
-            
-            {/* Stats */}
-            <div className="flex justify-center gap-8 mb-8">
-              <div className="text-center">
-                <div className="text-2xl font-bold">98.7%</div>
-                <div className="text-sm opacity-80">رضایت</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold">56,789</div>
-                <div className="text-sm opacity-80">کاربر</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold">1,234</div>
-                <div className="text-sm opacity-80">مقاله</div>
-              </div>
-            </div>
-            
-            {/* Search Bar */}
-            <div className="max-w-2xl mx-auto relative">
-              <Search className="absolute right-4 top-4 h-5 w-5 text-white/70" />
-              <Input
-                placeholder="جستجو در مقالات..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pr-12 h-14 text-lg bg-white/10 border-white/20 text-white placeholder:text-white/70 focus:border-white/40"
-              />
-            </div>
-          </div>
-        </div>
-      </header>
-
-      <div className="container mx-auto px-4 py-12">
-        {/* Categories */}
-        <section className="mb-8">
-          <div className="flex flex-wrap gap-3 mb-8">
-            {categories.map((category) => (
-              <PersianButton
-                key={category.name}
-                variant={selectedCategory === category.name ? "default" : "outline"}
-                size="sm"
-                onClick={() => setSelectedCategory(category.name)}
-                className="h-12 px-6"
-              >
-                <span className="ml-2">{category.icon}</span>
-                {category.name}
-                {category.count > 0 && (
-                  <Badge variant="secondary" className="mr-2 text-xs">
-                    {category.count}
-                  </Badge>
-                )}
-              </PersianButton>
-            ))}
-          </div>
-
-          {/* Filters */}
-          <div className="flex flex-wrap gap-3 mb-8">
-            {["جدیدترین", "محبوب‌ترین", "بیشترین بازدید", "بیشترین نظر"].map((filter) => (
-              <PersianButton
-                key={filter}
-                variant={selectedFilter === filter ? "default" : "outline"}
-                size="sm"
-                onClick={() => setSelectedFilter(filter)}
-                className="h-10"
-              >
-                {filter}
-              </PersianButton>
-            ))}
-          </div>
-        </section>
-
-        {/* Articles Grid */}
-        {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mb-12">
-            {Array.from({ length: 6 }).map((_, index) => (
-              <PersianCard key={index} variant="elegant" className="animate-pulse">
-                <div className="h-48 bg-secondary rounded-t-xl"></div>
-                <PersianCardContent className="p-6">
-                  <div className="h-6 bg-secondary rounded mb-3"></div>
-                  <div className="h-4 bg-secondary rounded mb-2"></div>
-                  <div className="h-4 bg-secondary rounded w-3/4 mb-4"></div>
-                  <div className="flex justify-between">
-                    <div className="h-4 bg-secondary rounded w-1/4"></div>
-                    <div className="h-4 bg-secondary rounded w-1/4"></div>
-                  </div>
-                </PersianCardContent>
-              </PersianCard>
-            ))}
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mb-12">
-            {filteredArticles.map((article, index) => (
-              <PersianCard 
-                key={article.id} 
-                variant="elegant" 
-                className="group hover:scale-[1.02] transition-all duration-300 cursor-pointer animate-fade-in-up overflow-hidden"
-                style={{ animationDelay: `${index * 0.1}s` }}
-              >
-                <div className="relative">
-                  <div className="w-full h-48 bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
-                    <span className="text-4xl">{article.categories?.icon || '📄'}</span>
-                  </div>
-                  <div className="absolute top-4 right-4">
-                    <Badge 
-                      style={{ backgroundColor: article.categories?.color || '#6366f1' }}
-                      className="text-white border-0 shadow-soft"
-                    >
-                      <span className="ml-1">{article.categories?.icon || '📄'}</span>
-                      {article.categories?.name || 'عمومی'}
-                    </Badge>
-                  </div>
-                  <div className="absolute bottom-4 left-4">
-                    <Badge variant="secondary" className="bg-white/90 text-foreground">
-                      {article.reading_time} دقیقه
-                    </Badge>
-                  </div>
+    <PersianLayout>
+      <div className="min-h-screen bg-background">
+        {/* Header */}
+        <header className="bg-card/95 backdrop-blur-sm border-b sticky top-0 z-50">
+          <div className="container mx-auto px-4 py-4">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 bg-gradient-primary rounded-xl flex items-center justify-center">
+                  <BookOpen className="h-5 w-5 text-white" />
                 </div>
-                
-                <PersianCardContent className="p-6">
-                  <h3 className="text-xl font-bold mb-3 leading-relaxed group-hover:text-primary transition-colors">
-                    {article.title}
-                  </h3>
-                  
-                  <p className="text-muted-foreground mb-4 leading-relaxed line-clamp-2">
-                    {article.excerpt || article.content?.substring(0, 150) + '...'}
-                  </p>
-                  
-                  <div className="flex items-center justify-between mb-4 text-sm text-muted-foreground">
-                    <div className="flex items-center gap-1">
-                      <User className="h-4 w-4" />
-                      <span>{article.profiles?.display_name || 'نویسنده'}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Clock className="h-4 w-4" />
-                      <span>{new Date(article.published_at || article.created_at).toLocaleDateString('fa-IR')}</span>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center justify-between pt-4 border-t">
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                      <div className="flex items-center gap-1">
-                        <Eye className="h-4 w-4" />
-                        <span>{(article.views || 0).toLocaleString()}</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Heart className="h-4 w-4" />
-                        <span>{article.likes || 0}</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <MessageCircle className="h-4 w-4" />
-                        <span>{article.comments_count || 0}</span>
-                      </div>
-                    </div>
-                    
-                    <PersianButton variant="ghost" size="sm" className="text-primary hover:bg-primary/10">
-                      مطالعه
-                    </PersianButton>
-                  </div>
-                </PersianCardContent>
-              </PersianCard>
-            ))}
-          </div>
-        )}
+                <div>
+                  <h1 className="text-xl font-bold gradient-text">نیگار دیپ</h1>
+                  <p className="text-sm text-muted-foreground">مجله علمی و فناوری</p>
+                </div>
+              </div>
 
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex justify-center items-center gap-2 mb-8">
-            <PersianButton
-              variant="outline"
-              size="sm"
-              onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-              disabled={currentPage === 1}
-            >
-              <ChevronRight className="h-4 w-4" />
-              قبلی
-            </PersianButton>
-            
-            <div className="flex gap-1">
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                <PersianButton
-                  key={page}
-                  variant={currentPage === page ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setCurrentPage(page)}
-                  className="w-10 h-10"
-                >
-                  {page}
-                </PersianButton>
+              <PersianButton variant="default" asChild>
+                <Link to="/login">
+                  <LogIn className="ml-2 h-4 w-4" />
+                  ورود به پنل
+                </Link>
+              </PersianButton>
+            </div>
+          </div>
+        </header>
+
+        <div className="container mx-auto px-4 py-8">
+          {/* Search and Filters */}
+          <div className="mb-8 space-y-4">
+            <div className="flex flex-col md:flex-row gap-4">
+              <div className="relative flex-1">
+                <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+                <Input
+                  placeholder="جستجو در مقالات..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pr-10"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <Filter className="h-4 w-4 text-muted-foreground" />
+                <div className="flex flex-wrap gap-2">
+                  {["همه دسته‌ها", ...categories.map(c => c.name)].map((category) => (
+                    <Badge
+                      key={category}
+                      variant={selectedCategory === category ? "default" : "outline"}
+                      className="cursor-pointer hover:scale-105 transition-transform"
+                      onClick={() => setSelectedCategory(category)}
+                    >
+                      {category}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Articles Grid */}
+          {loading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <PersianCard key={i} className="animate-pulse">
+                  <div className="h-48 bg-muted rounded-t-lg"></div>
+                  <PersianCardContent className="p-4 space-y-3">
+                    <div className="h-4 bg-muted rounded"></div>
+                    <div className="h-3 bg-muted rounded"></div>
+                    <div className="h-3 bg-muted rounded w-2/3"></div>
+                  </PersianCardContent>
+                </PersianCard>
               ))}
             </div>
-            
-            <PersianButton
-              variant="outline"
-              size="sm"
-              onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
-              disabled={currentPage === totalPages}
-            >
-              بعدی
-              <ChevronLeft className="h-4 w-4" />
-            </PersianButton>
-          </div>
-        )}
+          ) : articles.length === 0 ? (
+            <div className="text-center py-16">
+              <BookOpen className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
+              <h3 className="text-xl font-semibold mb-2">مقاله‌ای یافت نشد</h3>
+              <p className="text-muted-foreground">هنوز مقاله‌ای منتشر نشده است</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {articles.map((article, index) => (
+                <PersianCard 
+                  key={article.id} 
+                  className="group hover:shadow-elegant transition-all duration-300 cursor-pointer animate-fade-in-up"
+                  style={{ animationDelay: `${index * 0.1}s` }}
+                  onClick={() => incrementView(article.id)}
+                >
+                  {article.featured_image && (
+                    <div className="relative overflow-hidden rounded-t-lg">
+                      <img
+                        src={article.featured_image}
+                        alt={article.title}
+                        className="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
+                      {article.categories && (
+                        <Badge 
+                          className="absolute top-3 right-3"
+                          style={{ backgroundColor: article.categories.color }}
+                        >
+                          {article.categories.name}
+                        </Badge>
+                      )}
+                    </div>
+                  )}
+                  
+                  <PersianCardContent className="p-4">
+                    <h3 className="font-bold text-lg mb-2 line-clamp-2 group-hover:text-primary transition-colors">
+                      {article.title}
+                    </h3>
+                    
+                    <p className="text-muted-foreground text-sm mb-4 line-clamp-3">
+                      {article.excerpt}
+                    </p>
 
-        {/* Newsletter Section - Matching nigardip.site */}
-        <section className="bg-gradient-to-br from-primary/10 to-accent/10 rounded-3xl p-8 text-center">
-          <div className="max-w-2xl mx-auto">
-            <h2 className="text-3xl font-bold mb-4 gradient-text">📧 عضویت در خبرنامه</h2>
-            <p className="text-muted-foreground mb-6">
-              جدیدترین مقالات و آپدیت‌های امنیتی را مستقیماً دریافت کنید
-            </p>
-            
-            <div className="flex gap-4 max-w-md mx-auto mb-6">
-              <Input 
-                placeholder="آدرس ایمیل شما..."
-                className="flex-1"
-              />
-              <PersianButton variant="gradient">
-                🚀 عضویت رایگان
+                    <div className="flex items-center justify-between text-xs text-muted-foreground mb-3">
+                      <div className="flex items-center gap-4">
+                        <span className="flex items-center gap-1">
+                          <User className="h-3 w-3" />
+                          {article.profiles?.display_name || 'ناشناس'}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Calendar className="h-3 w-3" />
+                          {new Date(article.created_at).toLocaleDateString('fa-IR')}
+                        </span>
+                      </div>
+                      {article.reading_time && (
+                        <span className="flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          {article.reading_time} دقیقه
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-between pt-3 border-t">
+                      <div className="flex items-center gap-4">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleLike(article.id);
+                          }}
+                          className="flex items-center gap-1 text-muted-foreground hover:text-red-500 transition-colors"
+                        >
+                          <Heart className="h-4 w-4" />
+                          <span>{article.likes || 0}</span>
+                        </button>
+                        
+                        <div className="flex items-center gap-1 text-muted-foreground">
+                          <Eye className="h-4 w-4" />
+                          <span>{article.views || 0}</span>
+                        </div>
+                      </div>
+
+                      <PersianButton variant="ghost" size="sm">
+                        ادامه مطلب
+                      </PersianButton>
+                    </div>
+                  </PersianCardContent>
+                </PersianCard>
+              ))}
+            </div>
+          )}
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex justify-center items-center gap-2 mt-12">
+              <PersianButton
+                variant="outline"
+                size="sm"
+                disabled={currentPage === 1}
+                onClick={() => setCurrentPage(currentPage - 1)}
+              >
+                <ChevronRight className="h-4 w-4" />
+                قبلی
+              </PersianButton>
+
+              <div className="flex gap-1">
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  const page = i + 1;
+                  return (
+                    <PersianButton
+                      key={page}
+                      variant={currentPage === page ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setCurrentPage(page)}
+                    >
+                      {page}
+                    </PersianButton>
+                  );
+                })}
+              </div>
+
+              <PersianButton
+                variant="outline"
+                size="sm"
+                disabled={currentPage === totalPages}
+                onClick={() => setCurrentPage(currentPage + 1)}
+              >
+                بعدی
+                <ChevronLeft className="h-4 w-4" />
               </PersianButton>
             </div>
-            
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-muted-foreground">
-              <div>✅ بدون اسپم</div>
-              <div>🎁 محتوای اختصاصی</div>
-              <div>🔒 حریم خصوصی محفوظ</div>
-              <div>📊 ۳ از ۱۲ مقاله نمایش داده شده</div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <footer className="bg-card border-t mt-16">
+          <div className="container mx-auto px-4 py-8">
+            <div className="text-center">
+              <p className="text-muted-foreground">
+                © ۱۴۰۳ نیگار دیپ. تمامی حقوق محفوظ است.
+              </p>
+              <p className="text-sm text-muted-foreground mt-2">
+                سیستم مدیریت محتوا
+              </p>
             </div>
           </div>
-        </section>
+        </footer>
       </div>
     </PersianLayout>
   );

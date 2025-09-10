@@ -1,22 +1,14 @@
-// مسیر فایل: frontend/src/pages/index.tsx
+import { useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 
-import type { GetServerSideProps } from 'next';
+const Index = () => {
+  const navigate = useNavigate();
 
-// این کامپوننت هرگز نمایش داده نمی شود چون همیشه هدایت اتفاق می افتد.
-const HomePage = () => {
+  useEffect(() => {
+    navigate('/articles');
+  }, [navigate]);
+
   return null;
 };
 
-// این تابع در سمت سرور اجرا شده و کاربر را به آدرس صحیح صفحه لاگین هدایت می کند.
-export const getServerSideProps: GetServerSideProps = async (context) => {
-  return {
-    redirect: {
-      //      ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-      destination: '/auth/login', // <<<--- این خط اصلاح شد
-      //      ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
-      permanent: false,
-    },
-  };
-};
-
-export default HomePage;
+export default Index;

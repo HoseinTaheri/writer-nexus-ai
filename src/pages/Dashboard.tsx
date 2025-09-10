@@ -103,10 +103,10 @@ const Dashboard = () => {
   ];
 
   const quickActions = [
-    { icon: Plus, title: "مقاله جدید", description: "ایجاد مقاله جدید", color: "bg-primary" },
-    { icon: Brain, title: "تولید AI", description: "تولید محتوا با هوش مصنوعی", color: "bg-accent" },
-    { icon: Users, title: "مدیریت کاربران", description: "مشاهده و مدیریت کاربران", color: "bg-success" },
-    { icon: Settings, title: "تنظیمات", description: "تنظیمات سیستم و پیکربندی", color: "bg-warning" }
+    { icon: Plus, title: "مقاله جدید", description: "ایجاد مقاله جدید", color: "bg-primary", link: "/article-editor" },
+    { icon: Brain, title: "تولید AI", description: "تولید محتوا با هوش مصنوعی", color: "bg-accent", link: "/article-editor?ai=true" },
+    { icon: Users, title: "مدیریت کاربران", description: "مشاهده و مدیریت کاربران", color: "bg-success", link: "/user-management" },
+    { icon: Settings, title: "تنظیمات", description: "تنظیمات سیستم و پیکربندی", color: "bg-warning", link: "/dashboard" }
   ];
 
   return (
@@ -171,7 +171,13 @@ const Dashboard = () => {
             <h2 className="text-2xl font-bold mb-6">اقدامات سریع</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               {quickActions.map((action, index) => (
-                <PersianCard key={index} variant="default" className="cursor-pointer hover:scale-105 transition-all group animate-fade-in-up" style={{ animationDelay: `${index * 0.1}s` }}>
+                <PersianCard 
+                  key={index} 
+                  variant="default" 
+                  className="cursor-pointer hover:scale-105 transition-all group animate-fade-in-up" 
+                  style={{ animationDelay: `${index * 0.1}s` }}
+                  onClick={() => navigate(action.link)}
+                >
                   <PersianCardContent className="p-6 text-center">
                     <div className={`w-16 h-16 ${action.color} rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform`}>
                       <action.icon className="h-8 w-8 text-white" />
